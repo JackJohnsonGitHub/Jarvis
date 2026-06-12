@@ -1,0 +1,171 @@
+{
+  "classifierModel": "anthropic/claude-haiku-4-5",
+  "maxSessionBudget": 1.0,
+  "phaseBias": 0.65,
+  "models": {
+    "deep-reasoner": {
+      "model": "anthropic/claude-fable-5",
+      "thinking": "high"
+    },
+    "opus-budget": {
+      "model": "anthropic/claude-opus-4-8",
+      "thinking": "high"
+    },
+    "long-context": {
+      "model": "anthropic/claude-opus-4-8",
+      "thinking": "high"
+    },
+    "balanced-coder": {
+      "model": "anthropic/claude-sonnet-4-6",
+      "thinking": "medium"
+    },
+    "agentic-planner": {
+      "model": "openai-codex/gpt-5.5",
+      "thinking": "high"
+    },
+    "gpt-balanced": {
+      "model": "openai-codex/gpt-5.4",
+      "thinking": "medium"
+    },
+    "code-specialist": {
+      "model": "openai-codex/gpt-5.3-codex",
+      "thinking": "medium"
+    },
+    "bulk-efficient": {
+      "model": "openai-codex/gpt-5.4-mini",
+      "thinking": "low"
+    },
+    "cheap-lite": {
+      "model": "anthropic/claude-haiku-4-5",
+      "thinking": "low"
+    }
+  },
+  "profiles": {
+    "auto": {
+      "high": {
+        "model": "deep-reasoner",
+        "thinking": "high",
+        "fallbacks": ["opus-budget", "agentic-planner"]
+      },
+      "medium": {
+        "model": "balanced-coder",
+        "thinking": "medium"
+      },
+      "low": {
+        "model": "bulk-efficient",
+        "thinking": "low"
+      }
+    },
+    "coding": {
+      "high": {
+        "model": "agentic-planner",
+        "thinking": "high",
+        "fallbacks": ["deep-reasoner", "opus-budget"]
+      },
+      "medium": {
+        "model": "balanced-coder",
+        "thinking": "medium"
+      },
+      "low": {
+        "model": "bulk-efficient",
+        "thinking": "low"
+      }
+    },
+    "research": {
+      "high": {
+        "model": "long-context",
+        "thinking": "high",
+        "fallbacks": ["deep-reasoner", "agentic-planner"]
+      },
+      "medium": {
+        "model": "balanced-coder",
+        "thinking": "medium"
+      },
+      "low": {
+        "model": "bulk-efficient",
+        "thinking": "low"
+      }
+    },
+    "writing": {
+      "high": {
+        "model": "deep-reasoner",
+        "thinking": "high",
+        "fallbacks": ["opus-budget"]
+      },
+      "medium": {
+        "model": "balanced-coder",
+        "thinking": "medium"
+      },
+      "low": {
+        "model": "cheap-lite",
+        "thinking": "low"
+      }
+    },
+    "bulk": {
+      "high": {
+        "model": "gpt-balanced",
+        "thinking": "medium"
+      },
+      "medium": {
+        "model": "gpt-balanced",
+        "thinking": "low"
+      },
+      "low": {
+        "model": "cheap-lite",
+        "thinking": "off"
+      }
+    },
+    "ops": {
+      "high": {
+        "model": "deep-reasoner",
+        "thinking": "high",
+        "fallbacks": ["opus-budget", "agentic-planner"]
+      },
+      "medium": {
+        "model": "balanced-coder",
+        "thinking": "medium"
+      },
+      "low": {
+        "model": "cheap-lite",
+        "thinking": "low"
+      }
+    }
+  },
+  "rules": [
+    {
+      "matches": ["debug", "refactor", "bug", "algorithm", "optimize", "architecture", "design", "plan"],
+      "tier": "high",
+      "reason": "deep coding/planning work"
+    },
+    {
+      "matches": ["implement", "test", "compile", "function", "api", "review"],
+      "tier": "medium",
+      "reason": "standard engineering work"
+    },
+    {
+      "matches": ["research", "investigate", "analyze"],
+      "tier": "high",
+      "reason": "deep research"
+    },
+    {
+      "matches": ["compare", "explain", "documentation", "write", "draft", "edit"],
+      "tier": "medium",
+      "reason": "standard writing/explanation"
+    },
+    {
+      "matches": ["ssh", "r720", "r620", "netbox", "homelab", "deploy", "systemctl"],
+      "tier": "high",
+      "reason": "infra changes need strongest model for safety"
+    },
+    {
+      "matches": ["email", "gmail", "calendar", "drive", "schedule", "invite"],
+      "tier": "medium",
+      "reason": "personal-assistant operations"
+    },
+    {
+      "matches": ["summarize", "classify", "extract", "format", "list", "convert", "translate", "proofread"],
+      "tier": "low",
+      "reason": "mechanical/bulk transformations"
+    }
+  ]
+}

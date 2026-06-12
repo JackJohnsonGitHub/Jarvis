@@ -1,0 +1,26 @@
+{
+  "providers": {
+    "homelab": {
+      "name": "Homelab (self-hosted, dormant)",
+      "baseUrl": "http://r720-upper:11434/v1",
+      "api": "openai-completions",
+      "apiKey": "ollama",
+      "models": [
+        {
+          "id": "qwen3-coder:30b",
+          "name": "Homelab Qwen3 Coder (dormant)",
+          "reasoning": false,
+          "input": ["text"],
+          "contextWindow": 128000,
+          "maxTokens": 16384,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
+        }
+      ]
+    }
+  }
+}

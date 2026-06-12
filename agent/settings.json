@@ -1,0 +1,64 @@
+{
+  "lastChangelogVersion": "0.79.1",
+  "defaultProvider": "router",
+  "defaultModel": "auto",
+  "defaultThinkingLevel": "xhigh",
+  "treeFilterMode": "user-only",
+  "theme": "tokyonight-storm",
+  "extensions": [
+    "extensions/jarvis/jarvis-branding.ts"
+  ],
+  "skills": [
+    "skills"
+  ],
+  "prompts": [
+    "prompts"
+  ],
+  "packages": [
+    "packages/@gotgenes/pi-anthropic-auth",
+    "packages/@mammothb/pi-tokyonight-storm",
+    "packages/pi-markdown-preview",
+    "packages/pi-powerline-footer",
+    "packages/@yeliu84/pi-model-router",
+    "packages/gentle-engram",
+    "packages/pi-mcp-adapter",
+    "packages/context-mode",
+    "packages/pi-lens",
+    "packages/@juicesharp/rpiv-advisor",
+    "packages/@juicesharp/rpiv-ask-user-question",
+    "packages/@ramarivera/pi-skill-selector",
+    "packages/visual-explainer",
+    "packages/pi-web-access",
+    "packages/@apmantza/greedysearch-pi",
+    "packages/@narumitw/pi-chrome-devtools",
+    "packages/jarvis-tts-sst"
+  ],
+  "enableInstallTelemetry": false,
+  "quietStartup": true,
+  "collapseChangelog": false,
+  "httpIdleTimeoutMs": 300000,
+  "transport": "auto",
+  "editorPaddingX": 1,
+  "showHardwareCursor": true,
+  "hideThinkingBlock": true,
+  "enabledModels": [
+    "router/auto",
+    "router/bulk",
+    "router/coding",
+    "router/ops",
+    "router/research",
+    "router/writing",
+    "anthropic/claude-fable-5"
+  ],
+  "powerline": {
+    "preset": "default",
+    "fixedEditor": true,
+    "mouseScroll": true
+  },
+  "terminal": {
+    "showTerminalProgress": true,
+    "clearOnShrink": true
+  },
+  "defaultProjectTrust": "always",
+  "doubleEscapeAction": "tree"
+}

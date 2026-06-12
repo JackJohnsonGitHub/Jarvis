@@ -1,0 +1,69 @@
+# Pi agent cache and runtime files
+cache/
+# Auto-downloaded ONNX voice models (jarvis-tts-sst)
+/models/
+pi-lens/*/cache/
+pi-lens/*/change-log.jsonl
+pi-lens/*/code-quality-warnings.jsonl
+pi-lens/*/turn-state.json
+pi-lens/*/metrics-history.json
+pi-lens/home-*/
+
+# Google Workspace credentials
+.gmcli/
+.gdcli/
+.gccli/
+client_secret_*.json
+
+# Secrets and runtime state (never commit)
+agent/auth.json
+agent/trust.json
+agent/sessions/
+agent/run-history.jsonl
+agent/mcp-cache.json
+
+# Abandoned sub-brain runtime state
+.morph/
+.omo/
+
+# Workflow run artifacts
+.pi/workflows/runs/
+
+# Context-mode data
+.context-mode/
+context-mode/content/
+context-mode/insight-cache/
+context-mode/sessions/
+
+# Engram memory (project-specific, keep in repo)
+# Remove this line if you want to exclude memory
+# .engram/
+
+# Node modules (dependencies live in agent/node_modules; manifest agent/package.json is tracked)
+node_modules/
+# Vendored extension packages keep their nested, version-pinned deps in git
+!agent/packages/*/node_modules/
+
+# Environment variables
+.env
+.env.local
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Generated diagrams (optional - comment out to track them)
+# .agent/diagrams/

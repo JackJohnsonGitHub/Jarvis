@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Jarvis harness — branded entry point for the Pi coding agent configured in ~/.pi.
+# All arguments pass straight through (e.g. `jarvis -p "..."`, `jarvis --resume`).
+exec pi "$@"
