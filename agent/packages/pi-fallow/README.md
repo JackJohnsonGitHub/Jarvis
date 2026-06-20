@@ -1,0 +1,138 @@
+# Pi Fallow extension
+
+A Pi coding-agent extension that exposes [Fallow](https://fallow.tools/docs/) as an LLM-callable tool.
+
+## Fallow docs analysis
+
+Fetched Fallow's docs index plus the LLM bundle (`/llms.txt`, `/llms-full.txt`). Key points for a Pi integration:
+
+- Fallow is codebase intelligence for TypeScript/JavaScript.
+- The free static layer covers dead code, unused exports/files/dependencies/types, duplication, complexity/health, architecture boundaries, feature flags, and auto-fix.
+- The optional runtime layer adds hot/cold path and runtime-backed deletion evidence.
+- The docs explicitly recommend agents use `--format json` for structured output.
+- The MCP tools are thin wrappers around CLI commands, so a Pi extension can get equivalent value by wrapping the CLI safely.
+- Useful agent commands map to: `fallow`, `dead-code`, `dupes`, `health`, `audit`, `fix --dry-run`, `fix --yes`, `list`, traces, and `coverage analyze`.
+- Fallow exit code `1` means issues/gate failure, not tool execution failure; only `2+` should be treated as command errors.
+
+## What this extension adds
+
+- LLM tool: `fallow_run`
+- Slash command: `/fallow ...` with autocomplete for Fallow commands and common flags (type `/fallow` and press Tab to pick a subcommand). Branch refs for `--base`/`--changed-since` are populated from the current repo when possible.
+- Command shortcuts: `/fallow pr` maps to `audit` with detected base ref and `new-only` gate default; `/fallow rerun` re-runs the previous slash command.
+- Automatic JSON + quiet output for modeled tool calls
+- Uses `FALLOW_BIN` if set, otherwise `fallow` from `PATH`, falling back to `npx -y fallow`
+- Truncates large output to Pi's default limits and saves full JSON to a temp file
+- Compact TUI rendering with expandable command/summary details
+- Interactive bordered issue navigator for `/fallow ...`: arrow keys or `j/k` move, Enter/Space expands the selected finding, `s` selects/unselects, `e`/`a` loads selected findings into the editor so you can add comments before submitting, `t` runs `trace-file` for the selected finding when possible, and `q`/Esc closes. The regular Pi transcript only gets a compact summary while details live in the navigator.
+
+## File layout
+
+- `.fallowrc.json` — Fallow entry-point and component callback configuration for local health/dead-code checks
+- `extensions/index.ts` — extension entrypoint and Pi registration (shimmed via `extensions/fallow.ts` for compatibility)
+- `extensions/fallow/schema.ts` — tool parameter schema
+- `extensions/fallow/autocomplete.ts` — `/fallow` command and flag autocomplete
+- `extensions/fallow/cli.ts` — CLI argument building and process execution
+- `extensions/fallow/output.ts` — JSON parsing, summaries, truncation
+- `extensions/fallow/overview.ts` — maps Fallow JSON to overview data
+- `extensions/fallow/ui.ts` — pi-tui overview component
+- `extensions/fallow/project/` — Fallow project/git status detection and rendering helpers
+- `extensions/fallow/pr-summary/` — PR gate summary extraction and rendering helpers
+- `extensions/fallow/engine.ts` — unified command execution + formatting pipeline
+- `extensions/fallow/summary/` — shared summary formatting/rendering helpers
+- `extensions/fallow/types.ts` — shared types
+
+## Install / test
+
+Install this repository as a Pi package:
+
+```bash
+# Global install for your user
+pi install .
+
+# Or project-local install, written to .pi/settings.json
+pi install -l .
+```
+
+Try it for one Pi run without installing:
+
+```bash
+pi -e .
+```
+
+Install from git:
+
+```bash
+pi install git:github.com/revazi/pi-fallow
+```
+
+After publishing to npm, install with:
+
+```bash
+pi install npm:pi-fallow
+```
+
+`package.json` declares the Pi package entrypoint:
+
+```json
+{
+  "keywords": ["pi-package", "pi-extension"],
+  "pi": {
+    "extensions": ["./extensions/index.ts"]
+  }
+}
+```
+
+## Publishing to the Pi package gallery
+
+Pi's package gallery discovers npm packages tagged with the `pi-package` keyword. This package is set up for that flow:
+
+1. Pick and add a license before publishing if you want the package to be open source.
+2. Verify the npm tarball contents:
+
+   ```bash
+   npm run pack:check
+   ```
+
+3. Publish to npm:
+
+   ```bash
+   npm publish --access public
+   ```
+
+4. Install the published package in Pi:
+
+   ```bash
+   pi install npm:pi-fallow
+   ```
+
+After npm publishing, the Pi gallery should pick it up from the `pi-package` keyword. To add a gallery preview, add a public MP4 `pi.video` or PNG/JPEG/GIF/WebP `pi.image` URL in the `pi` manifest.
+
+## License
+
+MIT © Revaz Zakalashvili
+
+## Examples
+
+Ask Pi:
+
+- "Run a Fallow audit for this PR and fix any introduced dead code."
+- "Use Fallow to find duplicate code, then trace the largest clone group before refactoring."
+- "Run Fallow health with file scores and targets; propose the safest low-effort refactor."
+- "Preview Fallow auto-fixes, then apply the safe ones."
+
+Or run manually in Pi:
+
+```text
+/fallow all
+/fallow pr
+/fallow pr --base develop --gate all
+/fallow rerun
+/fallow audit --base main --gate new-only
+/fallow audit --base origin/main --gate new-only
+/fallow check-changed --changed-since main
+/fallow dead-code --changed-since main
+/fallow dupes --changed-since main
+/fallow health --changed-since main
+/fallow trace-file extensions/fallow/ui.ts
+/fallow health --file-scores --targets --score --format json --quiet
+```

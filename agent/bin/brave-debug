@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Launch your everyday Brave (Flatpak, real profile) with the Chrome DevTools
+# remote-debugging port enabled, so Jarvis can attach to this existing session.
+#
+# Usage: brave-debug [url ...]
+#   - Run this to start (or focus) the Brave session Jarvis will reuse.
+#   - Brave allows ONE instance per profile: if a normal Brave (no debug port)
+#     is already running with this profile, quit it fully first, then run this.
+#
+# Jarvis attaches at http://127.0.0.1:9222 (PI_CHROME_DEVTOOLS_PORT).
+
+PORT="${PI_CHROME_DEVTOOLS_PORT:-9222}"
+exec /var/lib/flatpak/exports/bin/com.brave.Browser \
+  --remote-debugging-port="${PORT}" \
+  "$@"

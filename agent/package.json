@@ -1,0 +1,26 @@
+{
+  "name": "pi-extensions",
+  "private": true,
+  "dependencies": {
+    "@0xkobold/pi-codebase-wiki": "^0.8.7",
+    "@gotgenes/pi-anthropic-auth": "^0.5.0",
+    "@juicesharp/rpiv-advisor": "^1.19.1",
+    "@juicesharp/rpiv-ask-user-question": "^1.19.1",
+    "@majorgilles/pi-grill-me": "^0.3.0",
+    "@mammothb/pi-tokyonight-storm": "^0.1.1",
+    "@narumitw/pi-chrome-devtools": "^0.2.0",
+    "@qraxiss/pi-gemini-auth": "^0.5.1",
+    "@quintinshaw/pi-dynamic-workflows": "^2.4.0",
+    "@ramarivera/pi-skill-selector": "^0.1.16",
+    "@yeliu84/pi-model-router": "^0.3.1",
+    "context-mode": "^1.0.162",
+    "gentle-engram": "^0.1.7",
+    "pi-lens": "^3.8.50",
+    "pi-markdown-preview": "^0.10.0",
+    "pi-mcp-adapter": "^2.9.0",
+    "pi-powerline-footer": "^0.6.1",
+    "pi-web-access": "^0.10.7",
+    "sherpa-onnx-node": "^1.13.0",
+    "visual-explainer": "^0.7.1"
+  }
+}

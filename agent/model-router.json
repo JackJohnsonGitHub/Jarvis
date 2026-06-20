@@ -1,0 +1,307 @@
+{
+  "classifierModel": "anthropic/claude-haiku-4-5",
+  "maxSessionBudget": 1.0,
+  "phaseBias": 0.65,
+  "models": {
+    "deep-reasoner": {
+      "model": "anthropic/claude-fable-5",
+      "contextWindow": 200000
+    },
+    "opus-budget": {
+      "model": "anthropic/claude-opus-4-8",
+      "contextWindow": 200000
+    },
+    "long-context": {
+      "model": "anthropic/claude-opus-4-8",
+      "contextWindow": 200000
+    },
+    "balanced-coder": {
+      "model": "anthropic/claude-sonnet-4-6",
+      "contextWindow": 200000
+    },
+    "agentic-planner": {
+      "model": "openai-codex/gpt-5.5",
+      "contextWindow": 256000
+    },
+    "gpt-balanced": {
+      "model": "openai-codex/gpt-5.4",
+      "contextWindow": 256000
+    },
+    "code-specialist": {
+      "model": "openai-codex/gpt-5.3-codex-spark",
+      "contextWindow": 128000
+    },
+    "deepseek-pro": {
+      "model": "deepseek/deepseek-v4-pro",
+      "contextWindow": 65536
+    },
+    "bulk-efficient": {
+      "model": "deepseek/deepseek-v4-flash",
+      "contextWindow": 65536
+    },
+    "cheap-lite": {
+      "model": "deepseek/deepseek-v4-flash",
+      "contextWindow": 65536
+    },
+    "deepseek-fallback": {
+      "model": "deepseek/deepseek-v4-flash",
+      "contextWindow": 65536
+    },
+    "gemini-fallback": {
+      "model": "google-gemini-cli/gemini-2.5-pro",
+      "contextWindow": 1048576
+    }
+  },
+  "profiles": {
+    "auto": {
+      "high": {
+        "model": "deep-reasoner",
+        "thinking": "high",
+        "fallbacks": [
+          "opus-budget",
+          "agentic-planner",
+          "gemini-fallback",
+          "deepseek-fallback"
+        ]
+      },
+      "medium": {
+        "model": "balanced-coder",
+        "thinking": "medium",
+        "fallbacks": [
+          "deepseek-fallback",
+          "gemini-fallback"
+        ]
+      },
+      "low": {
+        "model": "bulk-efficient",
+        "thinking": "low",
+        "fallbacks": [
+          "deepseek-fallback",
+          "gemini-fallback"
+        ]
+      }
+    },
+    "coding": {
+      "high": {
+        "model": "agentic-planner",
+        "thinking": "high",
+        "fallbacks": [
+          "deep-reasoner",
+          "opus-budget",
+          "gemini-fallback"
+        ]
+      },
+      "medium": {
+        "model": "balanced-coder",
+        "thinking": "medium",
+        "fallbacks": [
+          "deepseek-fallback",
+          "gemini-fallback"
+        ]
+      },
+      "low": {
+        "model": "bulk-efficient",
+        "thinking": "low",
+        "fallbacks": [
+          "deepseek-fallback",
+          "gemini-fallback"
+        ]
+      }
+    },
+    "research": {
+      "high": {
+        "model": "long-context",
+        "thinking": "high",
+        "fallbacks": [
+          "deep-reasoner",
+          "agentic-planner",
+          "gemini-fallback"
+        ]
+      },
+      "medium": {
+        "model": "balanced-coder",
+        "thinking": "medium",
+        "fallbacks": [
+          "gemini-fallback"
+        ]
+      },
+      "low": {
+        "model": "bulk-efficient",
+        "thinking": "low",
+        "fallbacks": [
+          "gemini-fallback"
+        ]
+      }
+    },
+    "writing": {
+      "high": {
+        "model": "deep-reasoner",
+        "thinking": "high",
+        "fallbacks": [
+          "opus-budget",
+          "deepseek-fallback",
+          "gemini-fallback"
+        ]
+      },
+      "medium": {
+        "model": "balanced-coder",
+        "thinking": "medium",
+        "fallbacks": [
+          "opus-budget",
+          "deepseek-fallback",
+          "gemini-fallback"
+        ]
+      },
+      "low": {
+        "model": "cheap-lite",
+        "thinking": "low",
+        "fallbacks": [
+          "opus-budget",
+          "deepseek-fallback",
+          "gemini-fallback"
+        ]
+      }
+    },
+    "bulk": {
+      "high": {
+        "model": "gpt-balanced",
+        "thinking": "medium",
+        "fallbacks": [
+          "deepseek-fallback",
+          "gemini-fallback"
+        ]
+      },
+      "medium": {
+        "model": "cheap-lite",
+        "thinking": "low",
+        "fallbacks": [
+          "deepseek-fallback",
+          "gemini-fallback"
+        ]
+      },
+      "low": {
+        "model": "cheap-lite",
+        "thinking": "off",
+        "fallbacks": [
+          "deepseek-fallback",
+          "gemini-fallback"
+        ]
+      }
+    },
+    "ops": {
+      "high": {
+        "model": "deep-reasoner",
+        "thinking": "high",
+        "fallbacks": [
+          "opus-budget",
+          "agentic-planner",
+          "gemini-fallback"
+        ]
+      },
+      "medium": {
+        "model": "balanced-coder",
+        "thinking": "medium",
+        "fallbacks": [
+          "opus-budget",
+          "deepseek-fallback",
+          "gemini-fallback"
+        ]
+      },
+      "low": {
+        "model": "cheap-lite",
+        "thinking": "low",
+        "fallbacks": [
+          "opus-budget",
+          "deepseek-fallback",
+          "gemini-fallback"
+        ]
+      }
+    }
+  },
+  "rules": [
+    {
+      "matches": [
+        "debug",
+        "refactor",
+        "bug",
+        "algorithm",
+        "optimize",
+        "architecture",
+        "design",
+        "plan"
+      ],
+      "tier": "high",
+      "reason": "deep coding/planning work"
+    },
+    {
+      "matches": [
+        "implement",
+        "test",
+        "compile",
+        "function",
+        "api",
+        "review"
+      ],
+      "tier": "medium",
+      "reason": "standard engineering work"
+    },
+    {
+      "matches": [
+        "research",
+        "investigate",
+        "analyze"
+      ],
+      "tier": "high",
+      "reason": "deep research"
+    },
+    {
+      "matches": [
+        "compare",
+        "explain",
+        "documentation",
+        "write",
+        "draft",
+        "edit"
+      ],
+      "tier": "medium",
+      "reason": "standard writing/explanation"
+    },
+    {
+      "matches": [
+        "ssh",
+        "homelab",
+        "deploy",
+        "systemctl",
+        "infrastructure"
+      ],
+      "tier": "high",
+      "reason": "infra changes need strongest model for safety"
+    },
+    {
+      "matches": [
+        "email",
+        "gmail",
+        "calendar",
+        "drive",
+        "schedule",
+        "invite"
+      ],
+      "tier": "medium",
+      "reason": "personal-assistant operations"
+    },
+    {
+      "matches": [
+        "summarize",
+        "classify",
+        "extract",
+        "format",
+        "list",
+        "convert",
+        "translate",
+        "proofread"
+      ],
+      "tier": "low",
+      "reason": "mechanical/bulk transformations"
+    }
+  ]
+}

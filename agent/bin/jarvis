@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Jarvis harness — branded entry point for the Pi coding agent configured in ~/.pi.
+# All arguments pass straight through (e.g. `jarvis -p "..."`, `jarvis --resume`).
+
+# Chrome DevTools: use Brave Browser (Flatpak) with its existing profile.
+# Fixed port 9222 makes attach-first deterministic so an already-open Brave
+# (launched with --remote-debugging-port=9222) is reused instead of spawning a new one.
+export PI_CHROME_DEVTOOLS_BROWSER="/var/lib/flatpak/exports/bin/com.brave.Browser"
+export PI_CHROME_DEVTOOLS_USER_DATA_DIR="$HOME/.var/app/com.brave.Browser/config/BraveSoftware/Brave-Browser"
+export PI_CHROME_DEVTOOLS_PORT="9222"
+
+exec pi "$@"

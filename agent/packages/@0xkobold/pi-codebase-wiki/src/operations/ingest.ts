@@ -1,0 +1,685 @@
+/**
+ * Ingest Pipeline — reads raw sources and updates the wiki
+ *
+ * The core Karpathy Wiki operation: read source → extract → update wiki pages.
+ * Uses file system for wiki content, SQLite for metadata.
+ *
+ * On init, also generates AGENTS.md with wiki management instructions
+ * so the coding agent knows how to maintain the wiki.
+ */
+
+import * as fs from "fs";
+import * as path from "path";
+import type { GitCommit } from "../shared.js";
+import { toSlug, formatWikiDate, getDirectoryForPageType, DEFAULT_PAGE_TYPES } from "../shared.js";
+import type { PageTypeConfig } from "../shared.js";
+import { hasFrontmatter, serializeFrontmatter } from "../core/frontmatter.js";
+import type { WikiStore } from "../core/store.js";
+import type { ModuleInfo } from "../core/indexer.js";
+import { initWikiGit, wikiAutoCommit } from "../core/versioning.js";
+import {
+  getRecentCommits,
+  getAllCommits,
+  getCommitsSince,
+  filterIngestibleCommits,
+  groupCommitsByScope,
+  extractChangedFiles,
+  inferEntityFromPath,
+} from "../core/git.js";
+import {
+  scanFileTree,
+  inferModules,
+  readReadme,
+  readPackageJson,
+} from "../core/indexer.js";
+import type { WikiConfig, IngestConfig } from "../shared.js";
+import { DEFAULT_INGEST_CONFIG } from "../shared.js";
+import { createGitSourceManifest } from "./source.js";
+import {
+  ensureWikiDirs,
+  generateSchemaMD,
+  generateIndexMD,
+  generateLogMD,
+} from "../core/config.js";
+import { getTemplatesForPageTypes } from "../core/templates.js";
+
+// ============================================================================
+// FRONTMATTER INJECTION
+// ============================================================================
+
+/**
+ * Ensure page content has YAML frontmatter with metadata from the WikiPage.
+ * If frontmatter already exists, it's preserved as-is.
+ * If missing, injects a minimal frontmatter with type, slug, last_updated, and source IDs.
+ */
+function ensureFrontmatter(content: string, page: { id: string; type: string; sourceIds?: string[]; lastIngested?: string }): string {
+  if (hasFrontmatter(content)) return content;
+
+  const metadata: Record<string, any> = {
+    id: page.id,
+    type: page.type,
+    last_updated: page.lastIngested ?? formatWikiDate(new Date()),
+  };
+  if (page.sourceIds && page.sourceIds.length > 0) {
+    metadata.sources = page.sourceIds;
+  }
+
+  return serializeFrontmatter(metadata, content);
+}
+
+// ============================================================================
+// INGEST OPERATIONS
+// =============================================================================
+export interface IngestResult {
+  pagesCreated: number;
+  pagesUpdated: number;
+  commitsProcessed: number;
+  filesProcessed: number;
+  errors: string[];
+}
+
+/**
+ * Generate AGENTS.md content with wiki management instructions.
+ * Merges into an existing AGENTS.md rather than overwriting —
+ * only adds the wiki section if it's missing.
+ */
+function generateAgentsWikiSection(wikiDir: string): string {
+  return [
+    "## Codebase Wiki",
+    "",
+    `This project has an auto-maintained knowledge base at \`${wikiDir}/\`.`,
+    "",
+    "### Keeping the Wiki Updated",
+    "",
+    "- **After making code changes**, run `wiki_ingest` with source `commits` or `smart` to update affected pages.",
+    "- **After refactoring or adding modules**, run `wiki_ingest` with source `tree` to sync the file tree.",
+    "- **Periodically run `wiki_lint`** to catch contradictions, orphans, and stale pages.",
+    "- **When you create an ADR or major design decision**, use `wiki_decision` to record it.",
+    "- **When you add a cross-cutting pattern**, use `wiki_concept` to document it.",
+    "- **When you need context**, use `wiki_query` instead of grepping source files.",
+    "",
+    "### Wiki Page Types",
+    "",
+    "| Type | Directory | Purpose |",
+    "|------|-----------|---------|",
+    "| entity | `entities/` | Code modules, services, and components |",
+    "| concept | `concepts/` | Cross-cutting patterns and architectural themes |",
+    "| decision | `decisions/` | Architecture Decision Records (ADRs) |",
+    "| evolution | `evolution/` | Feature change history traced from git |",
+    "| query | `queries/` | Filed search queries for cross-referencing |",
+    "",
+    "### Workflow",
+    "",
+    "1. **Initialize**: `/wiki-init` creates `" + wikiDir + "/` with SCHEMA.md, templates, and INDEX.md.",
+    "2. **Populate**: `wiki_ingest` with `tree` (initial), `commits` (incremental), `smart` (enrich), or `llm` (agent-written).",
+    "3. **Query**: `wiki_query` searches pages and files good queries back as new wiki pages.",
+    "4. **Lint**: `wiki_lint` checks for contradictions, orphans, stale pages, broken links.",
+    "5. **Evolve**: `wiki_evolve` traces how a feature changed over time from git history.",
+    "",
+    "Pages are tracked in SQLite (`" + wikiDir + "/meta/wiki.db`) and versioned in git.",
+    "Edit pages by hand or via tools — the wiki respects hand-edited content and won't overwrite it with stubs.",
+  ].join("\n");
+}
+
+/**
+ * Write or merge wiki management instructions into AGENTS.md.
+ * Only adds the section if it doesn't already exist.
+ */
+function writeAgentsWikiSection(rootDir: string, wikiDir: string): void {
+  const agentsPath = path.join(rootDir, "AGENTS.md");
+  const wikiSection = generateAgentsWikiSection(wikiDir);
+  const sectionMarker = "## Codebase Wiki";
+
+  try {
+    if (fs.existsSync(agentsPath)) {
+      let content = fs.readFileSync(agentsPath, "utf-8");
+      // Only add if the section doesn't already exist
+      if (!content.includes(sectionMarker)) {
+        // Append the wiki section at the end
+        content = content.trimEnd() + "\n\n" + wikiSection + "\n";
+        fs.writeFileSync(agentsPath, content, "utf-8");
+      }
+      // If section already exists, leave it as-is (user may have customized it)
+    } else {
+      // No AGENTS.md yet — create one with just the wiki section
+      const newContent = "# AGENTS.md\n\n" + wikiSection + "\n";
+      fs.writeFileSync(agentsPath, newContent, "utf-8");
+    }
+  } catch {
+    // Can't write AGENTS.md — not fatal, just skip
+  }
+}
+
+/**
+ * Initialize a new wiki for the project
+ */
+export function initWiki(
+  rootDir: string,
+  config: WikiConfig,
+  store: WikiStore
+): string {
+  console.assert(typeof rootDir === "string", "rootDir must be string");
+
+  // Resolve domain preset (codebase, personal, research, book)
+  const domain = config.domain ?? "codebase";
+  const pageTypes = config.pageTypes ?? DEFAULT_PAGE_TYPES;
+
+  const wikiPath = ensureWikiDirs(rootDir, config.wikiDir, pageTypes);
+  const schemaPath = path.join(wikiPath, "SCHEMA.md");
+  const indexPath = path.join(wikiPath, "INDEX.md");
+  const logPath = path.join(wikiPath, "meta", "LOG.md");
+
+  // Read project name from package.json or directory name
+  const pkg = readPackageJson(rootDir);
+  const projectName = (pkg?.name as string) || path.basename(rootDir);
+
+  // Create SCHEMA.md — includes domain, page types, and ingestion workflow
+  if (!fs.existsSync(schemaPath)) {
+    fs.writeFileSync(schemaPath, generateSchemaMD(projectName, domain, pageTypes, config.ingestionMode, config.ingestionThresholds), "utf-8");
+  }
+
+  // Create INDEX.md
+  if (!fs.existsSync(indexPath)) {
+    fs.writeFileSync(indexPath, generateIndexMD(projectName, domain, pageTypes), "utf-8");
+  }
+
+  // Create LOG.md
+  if (!fs.existsSync(logPath)) {
+    fs.writeFileSync(logPath, generateLogMD(), "utf-8");
+  }
+
+  // Create templates for all configured page types
+  const templatesDir = path.join(wikiPath, "templates");
+  const templates = getTemplatesForPageTypes(pageTypes);
+
+  for (const [filename, content] of Object.entries(templates)) {
+    const templatePath = path.join(templatesDir, filename);
+    if (!fs.existsSync(templatePath)) {
+      fs.writeFileSync(templatePath, content, "utf-8");
+    }
+  }
+
+  // Register index page in store
+  store.upsertPage({
+    id: "index",
+    path: "INDEX.md",
+    type: "index",
+    title: `${projectName} — ${domain === "codebase" ? "Codebase" : domain.charAt(0).toUpperCase() + domain.slice(1)} Wiki Index`,
+    summary: `Auto-maintained knowledge base for ${projectName}`,
+    sourceFiles: [],
+    sourceCommits: [],
+    lastIngested: new Date().toISOString(),
+    lastChecked: new Date().toISOString(),
+    inboundLinks: 0,
+    outboundLinks: 0,
+    stale: false,
+  });
+
+  // Add .codebase-wiki/ to project .gitignore if not already there
+  const gitignorePath = path.join(rootDir, ".gitignore");
+  const wikiIgnoreEntry = config.wikiDir + "/";  // e.g. ".codebase-wiki/"
+  try {
+    let gitignore = "";
+    if (fs.existsSync(gitignorePath)) {
+      gitignore = fs.readFileSync(gitignorePath, "utf-8");
+    }
+    if (!gitignore.includes(wikiIgnoreEntry)) {
+      const lines = gitignore.split("\n");
+      const hasBlankLine = lines[lines.length - 1] === "";
+      const addition = (hasBlankLine ? "" : "\n") + "\n# Codebase wiki — compiled artifact, regenerated from source\n" + wikiIgnoreEntry + "\n";
+      fs.appendFileSync(gitignorePath, addition, "utf-8");
+    }
+  } catch {
+    // Can't write .gitignore — not fatal, just skip
+  }
+
+  // Write wiki management instructions into AGENTS.md
+  writeAgentsWikiSection(rootDir, config.wikiDir);
+
+  // Initialize wiki git repo for versioning
+  initWikiGit(wikiPath);
+
+  return wikiPath;
+}
+
+/**
+ * Ingest recent git commits into the wiki
+ */
+export async function ingestCommits(
+  rootDir: string,
+  config: WikiConfig,
+  store: WikiStore,
+  since: string = "1 week ago",
+  ingestConfig: IngestConfig = DEFAULT_INGEST_CONFIG
+): Promise<IngestResult> {
+  console.assert(typeof rootDir === "string", "rootDir must be string");
+
+  const result: IngestResult = {
+    pagesCreated: 0,
+    pagesUpdated: 0,
+    commitsProcessed: 0,
+    filesProcessed: 0,
+    errors: [],
+  };
+
+  const wikiPath = path.join(rootDir, config.wikiDir);
+
+  // Get commits since last ingest or specified period
+  const lastIngest = store.getLastIngest();
+  let commits: GitCommit[];
+
+  if (lastIngest) {
+    // Get commits since last ingest hash
+    commits = getCommitsSince(rootDir, lastIngest.sourceRef);
+  } else {
+    // First ingest — get recent commits
+    commits = getRecentCommits(rootDir, since);
+  }
+
+  // Filter noise commits
+  const ingestibleCommits = filterIngestibleCommits(commits, ingestConfig);
+  result.commitsProcessed = ingestibleCommits.length;
+
+  if (ingestibleCommits.length === 0) {
+    return result;
+  }
+
+  // Group by scope for entity-based processing
+  const byScope = groupCommitsByScope(ingestibleCommits);
+
+  for (const [scope, scopeCommits] of byScope) {
+    try {
+      const slug = toSlug(scope === "_root" ? "root" : scope);
+      const entityDir = path.join(wikiPath, "entities");
+      const entityPath = path.join(entityDir, `${slug}.md`);
+
+      const allFiles = extractChangedFiles(scopeCommits);
+      result.filesProcessed += allFiles.length;
+
+      if (fs.existsSync(entityPath)) {
+        // Update existing entity page
+        updateEntityPage(entityPath, slug, scope, scopeCommits, allFiles, store);
+        result.pagesUpdated++;
+      } else {
+        // Create new entity page
+        createEntityPage(entityPath, slug, scope, scopeCommits, allFiles, store);
+        result.pagesCreated++;
+      }
+
+      // Add cross-references
+      const commitHashes = scopeCommits.map(c => c.hash);
+      store.addCrossReference("index", slug, `Main entity: ${scope}`);
+      store.upsertPage({
+        ...store.getPage(slug) ?? {
+          id: slug,
+          path: `entities/${slug}.md`,
+          type: "entity",
+          title: scope,
+          summary: "",
+          sourceFiles: allFiles,
+          sourceCommits: commitHashes,
+          lastIngested: new Date().toISOString(),
+          lastChecked: new Date().toISOString(),
+          inboundLinks: 0,
+          outboundLinks: 0,
+          stale: false,
+        },
+        sourceCommits: [...new Set([...(store.getPage(slug)?.sourceCommits ?? []), ...commitHashes])],
+        sourceFiles: [...new Set([...(store.getPage(slug)?.sourceFiles ?? []), ...allFiles])],
+        lastIngested: new Date().toISOString(),
+      });
+    } catch (err) {
+      result.errors.push(`Failed to process scope ${scope}: ${err}`);
+    }
+  }
+
+  // Log the ingest
+  store.logIngest({
+    sourceType: "commit",
+    sourceRef: ingestibleCommits[0]?.hash ?? "unknown",
+    pagesCreated: result.pagesCreated,
+    pagesUpdated: result.pagesUpdated,
+    timestamp: new Date().toISOString(),
+  });
+
+  // Update INDEX.md
+  updateIndex(wikiPath, store);
+
+  // Update LOG.md (structured format)
+  appendToLog(wikiPath, result);
+
+  // Create source manifest for this ingest
+  if (result.commitsProcessed > 0) {
+    const lastCommit = ingestibleCommits[ingestibleCommits.length - 1];
+    const firstCommit = ingestibleCommits[0];
+    const range = firstCommit && lastCommit
+      ? `${firstCommit.hash.slice(0, 7)}..${lastCommit.hash.slice(0, 7)}`
+      : since;
+    // Note: ingestResult tracks counts, not specific page IDs
+    // We pass empty arrays here; individual page IDs are tracked via store.upsertPage
+    createGitSourceManifest(wikiPath, store, range, [], []);
+  }
+
+  wikiAutoCommit(wikiPath, `wiki: ingest ${result.commitsProcessed} commits, ${result.pagesCreated} created, ${result.pagesUpdated} updated`);
+
+  return result;
+}
+
+/**
+ * Ingest the full file tree (initial setup)
+ */
+export async function ingestFileTree(
+  rootDir: string,
+  config: WikiConfig,
+  store: WikiStore,
+  ingestConfig: IngestConfig = DEFAULT_INGEST_CONFIG
+): Promise<IngestResult> {
+  const result: IngestResult = {
+    pagesCreated: 0,
+    pagesUpdated: 0,
+    commitsProcessed: 0,
+    filesProcessed: 0,
+    errors: [],
+  };
+
+  const wikiPath = path.join(rootDir, config.wikiDir);
+
+  // Scan file tree
+  const files = scanFileTree(rootDir, ingestConfig.excludePatterns);
+  result.filesProcessed = files.length;
+
+  // Infer modules
+  const modules = inferModules(files);
+
+  for (const module of modules) {
+    try {
+      const slug = module.slug;
+      const entityDir = path.join(wikiPath, "entities");
+      const entityPath = path.join(entityDir, `${slug}.md`);
+
+      if (fs.existsSync(entityPath)) {
+        updateEntityPage(entityPath, slug, module.name, [], module.sourceFiles, store);
+        result.pagesUpdated++;
+      } else {
+        createEntityPage(entityPath, slug, module.name, [], module.sourceFiles, store);
+        result.pagesCreated++;
+      }
+    } catch (err) {
+      result.errors.push(`Failed to process module ${module.name}: ${err}`);
+    }
+  }
+
+  // Also ingest README if it exists
+  const readme = readReadme(rootDir);
+  if (readme) {
+    const readmeSlug = "readme";
+    const conceptDir = path.join(wikiPath, "concepts");
+    const readmePath = path.join(conceptDir, `${readmeSlug}.md`);
+
+    const content = `# README Summary\n\n> **Summary**: Project README documentation.\n\n${readme.slice(0, 2000)}${readme.length > 2000 ? "\n\n... (truncated)" : ""}\n\n## See Also\n- [[index]]\n`;
+
+    fs.mkdirSync(conceptDir, { recursive: true });
+    const readmeWithFrontmatter = ensureFrontmatter(content, { id: "readme", type: "concept" });
+    fs.writeFileSync(readmePath, readmeWithFrontmatter, "utf-8");
+    result.pagesCreated++;
+  }
+
+  // Log the ingest
+  store.logIngest({
+    sourceType: "full-tree",
+    sourceRef: "initial-ingest",
+    pagesCreated: result.pagesCreated,
+    pagesUpdated: result.pagesUpdated,
+    timestamp: new Date().toISOString(),
+  });
+
+  // Update INDEX.md
+  updateIndex(wikiPath, store);
+
+  wikiAutoCommit(wikiPath, `wiki: ingest file tree, ${result.pagesCreated} created, ${result.filesProcessed} files`);
+
+  return result;
+}
+
+// ============================================================================
+// PAGE GENERATORS (pure functions that produce markdown)
+// ============================================================================
+
+function createEntityPage(
+  filePath: string,
+  slug: string,
+  name: string,
+  commits: GitCommit[],
+  sourceFiles: string[],
+  store: WikiStore
+): void {
+  const today = formatWikiDate(new Date());
+  const recentCommits = commits.slice(0, 10).map(c =>
+    `- **${c.type}${c.scope ? `(${c.scope})` : ""}**: ${c.subject} ([${c.hash.slice(0, 7)}]})`
+  ).join("\n");
+
+  const fileList = sourceFiles.slice(0, 20).map(f => `- \`${f}\``).join("\n");
+
+  const content = `# ${name}
+
+> **Summary**: ${name} module in the codebase.
+
+## Location
+- **Files**: ${sourceFiles.length} source files
+
+## Key Files
+${fileList || "- (no files tracked)"}
+
+## Dependencies
+- (to be discovered)
+
+## Dependents
+- (to be discovered)
+
+## Design Decisions
+- (to be documented)
+
+## Evolution
+${recentCommits ? `### Recent Changes\n${recentCommits}` : "- (no commits tracked yet)"}
+
+---
+*Last updated: ${today}*
+`;
+
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const enrichedContent = ensureFrontmatter(content, { id: slug, type: "entity" });
+  fs.writeFileSync(filePath, enrichedContent, "utf-8");
+
+  store.upsertPage({
+    id: slug,
+    path: `entities/${slug}.md`,
+    type: "entity",
+    title: name,
+    summary: `${name} module in the codebase`,
+    sourceFiles,
+    sourceCommits: commits.map(c => c.hash),
+    lastIngested: new Date().toISOString(),
+    lastChecked: new Date().toISOString(),
+    inboundLinks: 0,
+    outboundLinks: 0,
+    stale: false,
+  });
+}
+
+function updateEntityPage(
+  filePath: string,
+  slug: string,
+  name: string,
+  newCommits: GitCommit[],
+  newFiles: string[],
+  store: WikiStore
+): void {
+  const existing = store.getPage(slug);
+  if (!existing) {
+    createEntityPage(filePath, slug, name, newCommits, newFiles, store);
+    return;
+  }
+
+  // Read existing content
+  let content: string;
+  try {
+    content = fs.readFileSync(filePath, "utf-8");
+  } catch {
+    createEntityPage(filePath, slug, name, newCommits, newFiles, store);
+    return;
+  }
+
+  // Check if content has been hand-edited or enriched (not a stub)
+  // Preserve hand-edited content — don't overwrite with stubs
+  const isEnriched = !content.includes("(to be discovered)")
+    && !content.includes("(to be documented)")
+    && !content.includes("(no files tracked)");
+
+  // Backup existing file before overwriting (preserves hand-edited content)
+  const backupDir = path.join(path.dirname(filePath), "..", "meta", "backups");
+  try {
+    fs.mkdirSync(backupDir, { recursive: true });
+    const backupPath = path.join(backupDir, `${slug}-${Date.now()}.md`);
+    fs.writeFileSync(backupPath, content, "utf-8");
+  } catch {
+    // Backup failure is non-fatal — log but continue
+  }
+
+  const today = formatWikiDate(new Date());
+
+  // Always update timestamp
+  content = content.replace(
+    /\*Last updated:.*\*/,
+    `*Last updated: ${today}*`
+  );
+
+  // Append commits to Evolution section using proper section boundary parsing
+  if (newCommits.length > 0) {
+    const commitLines = newCommits.slice(0, 5).map(c =>
+      `- **${c.type}${c.scope ? `(${c.scope})` : ""}**: ${c.subject} ([${c.hash.slice(0, 7)}])`
+    ).join("\n");
+
+    if (content.includes("## Evolution")) {
+      // Insert new evolution entries right after the ## Evolution header,
+      // before any existing content. Use non-greedy match up to next ## header.
+      content = content.replace(
+        /## Evolution\n/,
+        `## Evolution\n\n### ${today}\n${commitLines}\n`
+      );
+    } else {
+      // No Evolution section yet — append one before the See Also or end
+      const seeAlsoIdx = content.indexOf("## See Also");
+      const newSection = `\n## Evolution\n\n### ${today}\n${commitLines}\n`;
+      if (seeAlsoIdx !== -1) {
+        content = content.slice(0, seeAlsoIdx) + newSection + content.slice(seeAlsoIdx);
+      } else {
+        content += newSection;
+      }
+    }
+  }
+
+  // Update Key Files section — only on stub pages, with safe section boundary
+  if (!isEnriched && newFiles.length > 0) {
+    const fileList = newFiles.slice(0, 20).map(f => `- \`${f}\``).join("\n");
+    // Use non-greedy match up to the next ## header (section boundary)
+    content = content.replace(
+      /## Key Files\n([\s\S]*?)(?=\n## )/,
+      `## Key Files\n${fileList}\n\n`
+    );
+  }
+
+  const enrichedContent = ensureFrontmatter(content, { id: slug, type: "entity", sourceIds: existing.sourceIds, lastIngested: existing.lastIngested });
+  fs.writeFileSync(filePath, enrichedContent, "utf-8");
+
+  // Update store — merge source data, don't replace
+  existing.sourceCommits = [...new Set([...existing.sourceCommits, ...newCommits.map(c => c.hash)])];
+  existing.sourceFiles = [...new Set([...existing.sourceFiles, ...newFiles])];
+  existing.lastIngested = new Date().toISOString();
+  existing.stale = false;  // Fresh ingest clears stale flag
+  store.upsertPage(existing);
+}
+
+// ============================================================================
+// INDEX & LOG UPDATES
+// ============================================================================
+
+export function updateIndex(wikiPath: string, store: WikiStore): void {
+  const pages = store.getAllPages();
+  const entities = pages.filter(p => p.type === "entity").sort((a, b) => a.title.localeCompare(b.title));
+  const concepts = pages.filter(p => p.type === "concept").sort((a, b) => a.title.localeCompare(b.title));
+  const decisions = pages.filter(p => p.type === "decision").sort((a, b) => a.title.localeCompare(b.title));
+  const evolutions = pages.filter(p => p.type === "evolution").sort((a, b) => a.title.localeCompare(b.title));
+  const comparisons = pages.filter(p => p.type === "comparison").sort((a, b) => a.title.localeCompare(b.title));
+
+  const today = formatWikiDate(new Date());
+
+  const lines: string[] = [
+    `# Codebase Wiki Index`,
+    ``,
+    `> Auto-maintained knowledge base. Use \`/wiki-query <question>\` to search.`,
+    ``,
+    `## Entities`,
+    ...entities.map(p => `- [[${p.id}]] — ${p.summary || p.title}`),
+    ``,
+    `## Concepts`,
+    ...concepts.map(p => `- [[${p.id}]] — ${p.summary || p.title}`),
+    ``,
+    `## Decisions (ADRs)`,
+    ...decisions.map(p => `- [[${p.id}]] — ${p.summary || p.title}`),
+    ``,
+    `## Evolution`,
+    ...evolutions.map(p => `- [[${p.id}]] — ${p.summary || p.title}`),
+    ``,
+    `## Comparisons`,
+    ...comparisons.map(p => `- [[${p.id}]] — ${p.summary || p.title}`),
+    ``,
+    `---`,
+    ``,
+    `*Last updated: ${today} • ${pages.length} pages total*`,
+  ];
+
+  const indexPath = path.join(wikiPath, "INDEX.md");
+  fs.writeFileSync(indexPath, lines.join("\n") + "\n", "utf-8");
+}
+
+function appendToLog(wikiPath: string, result: IngestResult): void {
+  const logPath = path.join(wikiPath, "meta", "LOG.md");
+  const today = formatWikiDate(new Date());
+
+  const entry = `| ${today} | commit | ${result.commitsProcessed} commits | ${result.pagesCreated} | ${result.pagesUpdated} |`;
+
+  try {
+    let content = fs.readFileSync(logPath, "utf-8");
+    // Find the first data row after the separator line (| - | - | ...)
+    // The log table has: header row, separator row, then data rows
+    // Insert new entries after the separator line
+    const lines = content.split("\n");
+    let insertIdx = -1;
+    for (let i = 0; i < lines.length; i++) {
+      // Find the separator row (contains only |, -, and spaces)
+      if (/^\|\s*[\-\s|]+\|\s*$/.test(lines[i]!)) {
+        insertIdx = i + 1; // Insert after separator
+        break;
+      }
+    }
+
+    if (insertIdx > 0 && insertIdx < lines.length) {
+      lines.splice(insertIdx, 0, entry);
+      content = lines.join("\n");
+      fs.writeFileSync(logPath, content, "utf-8");
+    } else {
+      // Fallback: append at end before the trailing marker
+      const markerIdx = content.lastIndexOf("---");
+      if (markerIdx > 0) {
+        content = content.slice(0, markerIdx) + entry + "\n\n" + content.slice(markerIdx);
+      } else {
+        content += entry + "\n";
+      }
+      fs.writeFileSync(logPath, content, "utf-8");
+    }
+  } catch {
+    // If log doesn't exist, create it
+    fs.mkdirSync(path.dirname(logPath), { recursive: true });
+    fs.writeFileSync(logPath, generateLogMD(), "utf-8");
+  }
+}

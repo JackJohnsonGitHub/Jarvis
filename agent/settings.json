@@ -1,0 +1,70 @@
+{
+  "lastChangelogVersion": "0.79.6",
+  "defaultProvider": "router",
+  "defaultModel": "auto",
+  "defaultThinkingLevel": "high",
+  "treeFilterMode": "user-only",
+  "theme": "tokyonight-storm",
+  "extensions": [
+    "extensions/jarvis/jarvis-branding.ts"
+  ],
+  "skills": [
+    "skills"
+  ],
+  "prompts": [
+    "prompts"
+  ],
+  "packages": [
+    "packages/@gotgenes/pi-anthropic-auth",
+    "packages/@mammothb/pi-tokyonight-storm",
+    "packages/pi-markdown-preview",
+    "packages/pi-powerline-footer",
+    "packages/@yeliu84/pi-model-router",
+    "packages/gentle-engram",
+    "packages/pi-mcp-adapter",
+    "packages/context-mode",
+    "packages/pi-lens",
+    "packages/@juicesharp/rpiv-advisor",
+    "packages/@juicesharp/rpiv-ask-user-question",
+    "packages/@ramarivera/pi-skill-selector",
+    "packages/visual-explainer",
+    "packages/pi-web-access",
+    "packages/@narumitw/pi-chrome-devtools",
+    "packages/@qraxiss/pi-gemini-auth",
+    "packages/jarvis-tts-sst",
+    "packages/pi-fallow",
+    "npm:pi-subagents",
+    "npm:@juicesharp/rpiv-todo",
+    "packages/@majorgilles/pi-grill-me",
+    "packages/@quintinshaw/pi-dynamic-workflows",
+    "packages/@0xkobold/pi-codebase-wiki"
+  ],
+  "enableInstallTelemetry": false,
+  "quietStartup": true,
+  "collapseChangelog": false,
+  "httpIdleTimeoutMs": 300000,
+  "transport": "auto",
+  "editorPaddingX": 1,
+  "showHardwareCursor": true,
+  "hideThinkingBlock": false,
+  "enabledModels": [
+    "router/auto",
+    "router/bulk",
+    "router/coding",
+    "router/ops",
+    "router/research",
+    "router/writing",
+    "anthropic/claude-fable-5"
+  ],
+  "powerline": {
+    "preset": "default",
+    "fixedEditor": true,
+    "mouseScroll": true
+  },
+  "terminal": {
+    "showTerminalProgress": true,
+    "clearOnShrink": true
+  },
+  "defaultProjectTrust": "always",
+  "doubleEscapeAction": "tree"
+}
